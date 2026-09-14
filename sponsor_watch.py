@@ -102,6 +102,28 @@ class DedupeStore:
             )
             """
         )
+        # Preserve dedupe history after moving from URL-based keys to semantic
+        # headline keys. This prevents a deployment from replaying recent items
+        # that were already posted under the old key format.
+        existing_rows = self.conn.execute(
+            "SELECT company_name, list_name, title, url, seen_at FROM seen_items"
+        ).fetchall()
+        for company_name, list_name, title, url, seen_at in existing_rows:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO seen_items
+                (dedupe_key, company_name, list_name, title, url, seen_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    semantic_dedupe_key(company_name, headline_without_publisher(title)),
+                    company_name,
+                    list_name,
+                    title,
+                    url,
+                    seen_at,
+                ),
+            )
         self.conn.commit()
 
     def already_seen(self, dedupe_key: str) -> bool:
@@ -338,16 +360,6 @@ def parse_isoish_date(value: str | None) -> str | None:
     return raw[:10]
 
 
-def parse_cutoff_date(config: dict[str, Any]) -> dt.date | None:
-    raw = config.get("min_published_date")
-    if raw in (None, ""):
-        return None
-    try:
-        return dt.date.fromisoformat(str(raw))
-    except ValueError as exc:
-        raise SponsorWatchError(f"Invalid min_published_date: {raw}") from exc
-
-
 def strip_html(value: str) -> str:
     value = html.unescape(value or "")
     value = HTML_TAG_RE.sub(" ", value)
@@ -361,9 +373,25 @@ def short_summary(value: str, length: int = 220) -> str:
     return cleaned[: length - 1].rstrip() + "…"
 
 
-def dedupe_key(company: Company, title: str, url: str) -> str:
-    slug = f"{normalize_company_name(company.name)}|{normalize_url(url)}|{normalize_company_name(title)}"
+def headline_without_publisher(title: str, publisher: str | None = None) -> str:
+    """Remove Google News' trailing publisher while preserving headline dashes."""
+    if publisher:
+        suffix = f" - {publisher.strip()}"
+        if title.casefold().endswith(suffix.casefold()):
+            return title[: -len(suffix)].rstrip()
+        return title
+    # Used only to migrate legacy Google News keys, which did not retain the
+    # publisher as a separate field.
+    return title.rsplit(" - ", 1)[0] if " - " in title else title
+
+
+def semantic_dedupe_key(company_name: str, title: str) -> str:
+    slug = f"{normalize_company_name(company_name)}|{normalize_company_name(title)}"
     return hashlib.sha256(slug.encode("utf-8")).hexdigest()
+
+
+def dedupe_key(company: Company, title: str, url: str) -> str:
+    return semantic_dedupe_key(company.name, title)
 
 
 def official_domain_match(company: Company, url: str) -> bool:
@@ -376,8 +404,14 @@ def official_domain_match(company: Company, url: str) -> bool:
 def strict_google_match(company: Company, title: str, summary: str) -> bool:
     haystack = normalize_company_name(f"{title} {summary}")
     exact_terms = [normalize_company_name(term) for term in company.search_terms]
-    has_exact_term = any(term and term in haystack for term in exact_terms)
-    has_mortgage_context = any(keyword in haystack for keyword in MORTGAGE_KEYWORDS)
+    has_exact_term = any(
+        term and re.search(rf"(?:^| ){re.escape(term)}(?: |$)", haystack)
+        for term in exact_terms
+    )
+    has_mortgage_context = any(
+        re.search(rf"(?:^| ){re.escape(keyword)}(?: |$)", haystack)
+        for keyword in MORTGAGE_KEYWORDS
+    )
     if company.strict_google_match:
         return has_exact_term and has_mortgage_context
     return has_exact_term
@@ -507,7 +541,8 @@ def google_news_rss_url(company: Company, config: dict[str, Any]) -> str:
             terms.append(f"\"{alias}\"")
         context = " OR ".join(terms)
         query = f"({context}) ({context_terms})"
-
+    max_age_days = int(config.get("max_article_age_days", 7))
+    query = f"{query} when:{max_age_days}d"
     encoded = urllib.parse.quote(query)
     return f"https://news.google.com/rss/search?q={encoded}&hl={language}&gl={geo}&ceid={ceid}"
 
@@ -523,7 +558,8 @@ def fetch_google_news_articles(session: requests.Session, company: Company, conf
     root = ET.fromstring(text)
     articles: list[Article] = []
     for item in root.findall(".//item"):
-        title = strip_html(item.findtext("title") or "")
+        publisher = strip_html(item.findtext("source") or "")
+        title = headline_without_publisher(strip_html(item.findtext("title") or ""), publisher)
         link = normalize_url(item.findtext("link") or "", source.url)
         summary = short_summary(item.findtext("description") or "")
         published = parse_isoish_date(item.findtext("pubDate"))
@@ -548,20 +584,34 @@ def fetch_google_news_articles(session: requests.Session, company: Company, conf
     return articles
 
 
+def article_is_recent(
+    article: Article,
+    max_age_days: int,
+    allow_undated: bool = False,
+    today: dt.date | None = None,
+) -> bool:
+    if not article.published:
+        return allow_undated
+    try:
+        published = dt.date.fromisoformat(article.published)
+    except ValueError:
+        LOG.warning("Skipping article with invalid date %r: %s", article.published, article.title)
+        return False
+    current_date = today or dt.datetime.now(dt.timezone.utc).date()
+    age = (current_date - published).days
+    return -1 <= age <= max_age_days
+
+
 def select_recent_articles(
-    articles: Iterable[Article], max_items: int, min_published_date: dt.date | None
+    articles: Iterable[Article],
+    max_items: int,
+    max_age_days: int = 7,
+    allow_undated: bool = False,
 ) -> list[Article]:
     unique: dict[str, Article] = {}
     for article in articles:
-        if min_published_date is not None:
-            if article.published is None:
-                continue
-            try:
-                published_date = dt.date.fromisoformat(article.published)
-            except ValueError:
-                continue
-            if published_date < min_published_date:
-                continue
+        if not article_is_recent(article, max_age_days, allow_undated):
+            continue
         existing = unique.get(article.dedupe_key)
         if existing is None or (article.is_official and not existing.is_official):
             unique[article.dedupe_key] = article
@@ -574,12 +624,18 @@ def select_recent_articles(
 
 
 def collect_articles_for_company(session: requests.Session, company: Company, config: dict[str, Any]) -> list[Article]:
-    min_published_date = parse_cutoff_date(config)
+    selection_options = {
+        "max_items": int(config.get("max_items_per_company", 3)),
+        "max_age_days": int(config.get("max_article_age_days", 7)),
+        "allow_undated": bool(config.get("allow_undated_articles", False)),
+    }
     official = fetch_official_articles(session, company)
     if official:
-        return select_recent_articles(official, int(config.get("max_items_per_company", 3)), min_published_date)
+        selected_official = select_recent_articles(official, **selection_options)
+        if selected_official:
+            return selected_official
     fallback = fetch_google_news_articles(session, company, config)
-    return select_recent_articles(fallback, int(config.get("max_items_per_company", 3)), min_published_date)
+    return select_recent_articles(fallback, **selection_options)
 
 
 def format_alert(article: Article) -> str:

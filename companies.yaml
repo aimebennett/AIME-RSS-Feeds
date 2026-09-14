@@ -1,32 +1,40 @@
 watchlists:
   vendors:
-    - name: 20/20 Vision for Success
-    - name: Advantage Credit
+    - name: Advantage Partner Solutions
+    - name: Aila
     - name: Amarlo
     - name: ARIVE
+    - name: AutoPayPlus
     - name: Berman Media PD
     - name: BrokerVA
-    - name: Chris Welton Coaching
     - name: Co/LAB
+    - name: Corporate Shopping
     - name: Cotality
     - name: Direct Authority AI
-    - name: FormFree
-    - name: High Level for Mortgage Pros
-    - name: KeySteps
+    - name: Empower LO
+    - name: Everee
+    - name: Gusto
     - name: FinLocker
-    - name: KM Performance Coaching
     - name: LeadHackers
+    - name: Leaf360
     - name: Lender Price
     - name: LoanSites
     - name: Loan Team Training
     - name: Madison Chase Academy
-    - name: Maisy365
     - name: MLO Force
-    - name: MMI
+    - name: MMI One
+      aliases:
+        - MMI
       strict_google_match: true
+    - name: monday.com
+    - name: MortgageCon
     - name: myhomeIQ
     - name: My Credit Guy
+    - name: NordVPN
     - name: One Rose Consulting
+    - name: Pre-Fi
+    - name: PropertyRadar
+    - name: QuickBooks
     - name: RadCRM
     - name: Rapidio
     - name: RETR
@@ -35,7 +43,6 @@ watchlists:
       strict_google_match: true
     - name: Stikkum
     - name: Strategic Compliance Partners
-    - name: The Collective Coaching
     - name: The Defining Difference
     - name: The Financial Architects
     - name: Turbo Insurance
@@ -46,22 +53,30 @@ watchlists:
       aliases:
         - UWM
       strict_google_match: true
+    - name: Windsor Mortgage
+    - name: Cake Mortgage
+    - name: eLend
     - name: Equity Prime Mortgage
       aliases:
         - EPM
       strict_google_match: true
-    - name: NewRez Wholesale
-    - name: Windsor Mortgage
-    - name: Cake Mortgage
-    - name: eLend
+    - name: NewRez
+      aliases:
+        - NewRez Wholesale
     - name: RCN Capital
-    - name: Union Home Mortgage
-    - name: Sierra Pacific
     - name: Gold Star Wholesale
     - name: Newfi
-    - name: PRMG
+    - name: Paramount Residential Mortgage Group
+      aliases:
+        - PRMG
       strict_google_match: true
-    - name: The Loan Store
+    - name: Kind Lending
+    - name: MLB Wholesale
+      strict_google_match: true
+    - name: Verus Wholesale
+      aliases:
+        - Verus Mortgage Capital
+    - name: FlipCo Financial
   aime_mentions:
     - name: Association of Independent Mortgage Experts
       aliases:
