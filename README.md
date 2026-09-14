@@ -2,10 +2,11 @@
 
 Hourly Python watcher for three mortgage watchlists. It checks official company feeds/pages first when you define them in `companies.yaml`, falls back to Google News RSS when needed, dedupes locally with SQLite, and posts short markdown alerts into separate Roam channels.
 
+Alerts are limited to articles published in the last seven days by default. Undated items are skipped so a cache miss or first run cannot flood a channel with old results. Configure `max_article_age_days` and `allow_undated_articles` in `config.yaml` if needed.
+
 ## Files
 
 - `sponsor_watch.py`: single CLI entrypoint
-- `companies.yaml`: vendor/lender watchlists and optional official sources
 - `companies.yaml`: vendor/lender/AIME watchlists and optional official sources
 - `config.example.yaml`: runtime config template
 - `.github/workflows/hourly.yml`: hourly GitHub Actions job
@@ -97,7 +98,8 @@ The default file now includes an `aime_mentions` watchlist for:
 
 `config.yaml` / `config.example.yaml` supports:
 
-- `min_published_date`: drops anything older than the given `YYYY-MM-DD` date and skips undated items
+- `max_article_age_days`: rolling publication-age limit (seven days by default)
+- `allow_undated_articles`: whether articles with no usable publication date may be sent (off by default)
 - `roam_post_delay_seconds`: small pause between Roam posts to reduce rate-limit errors
 
 ## GitHub Actions
